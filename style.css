@@ -1,0 +1,120 @@
+/* General Layout */
+body {
+  margin: 0;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: linear-gradient(to bottom, #e8f5e9, #f1f8e9);
+  color: #2e3d2f;
+  text-align: center;
+}
+
+header {
+  background: #2e7d32;
+  color: white;
+  padding: 25px;
+  border-bottom: 5px solid #1b5e20;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 2.2em;
+}
+
+header p {
+  margin-top: 10px;
+  font-size: 1.1em;
+}
+
+/* Main Sections */
+main {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+}
+
+.upload-section, .canvas-section, .results-section {
+  background: white;
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  width: 90%;
+  max-width: 600px;
+}
+
+.upload-section h2, .canvas-section h2, .results-section h2 {
+  margin-bottom: 15px;
+  color: #1b5e20;
+}
+
+/* Upload Controls */
+#upload {
+  display: none;
+}
+
+.upload-label {
+  display: inline-block;
+  padding: 12px 18px;
+  background: #43a047;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s ease-in-out;
+}
+
+.upload-label:hover {
+  background: #2e7d32;
+}
+
+button {
+  margin-left: 10px;
+  padding: 12px 18px;
+  background: #2e7d32;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.2s ease-in-out;
+}
+
+button:disabled {
+  background: gray;
+  cursor: not-allowed;
+}
+
+button:hover:enabled {
+  background: #1b5e20;
+}
+
+/* Canvas Display */
+canvas {
+  max-width: 100%;
+  border: 3px solid #4caf50;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+/* Results */
+#results {
+  font-size: 1.2em;
+  font-weight: bold;
+  color: #2e3d2f;
+  margin-top: 10px;
+}
+
+#status {
+  margin-top: 10px;
+  font-style: italic;
+  color: #555;
+}
+
+/* Footer */
+footer {
+  margin-top: 40px;
+  padding: 15px;
+  background: #c8e6c9;
+  color: #1b5e20;
+  font-size: 0.9em;
+}
