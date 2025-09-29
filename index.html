@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🌿 Leaf Health Analyzer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🌿 Leaf Health Analyzer</h1>
+    <p>Upload a leaf photo to analyze its health using color detection.</p>
+  </header>
+
+  <main>
+    <section class="upload-section">
+      <label for="upload" class="upload-label">📂 Choose Leaf Image</label>
+      <input type="file" id="upload" accept="image/*">
+      <button id="analyzeBtn" disabled>🔍 Analyze Leaf</button>
+      <p id="status">Waiting for upload...</p>
+    </section>
+
+    <section class="canvas-section">
+      <h2>🖼 Processed Leaf</h2>
+      <canvas id="canvas"></canvas>
+    </section>
+
+    <section class="results-section">
+      <h2>📊 Results</h2>
+      <div id="results">No analysis yet.</div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Made with 💚 for Science Fair | Powered by API4AI</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
