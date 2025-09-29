@@ -1,39 +1,52 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>🌿 Leaf Health Analyzer</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
+  <header class="site-header">
     <h1>🌿 Leaf Health Analyzer</h1>
-    <p>Upload a leaf photo to analyze its health using color detection.</p>
+    <p class="tagline">Remove background → measure green coverage → estimate leaf health</p>
   </header>
 
-  <main>
-    <section class="upload-section">
-      <label for="upload" class="upload-label">📂 Choose Leaf Image</label>
-      <input type="file" id="upload" accept="image/*">
-      <button id="analyzeBtn" disabled>🔍 Analyze Leaf</button>
-      <p id="status">Waiting for upload...</p>
+  <main class="main">
+    <section class="card upload-card">
+      <label for="upload" class="upload-label">📂 Choose leaf image</label>
+      <input id="upload" type="file" accept="image/*">
+
+      <div class="controls">
+        <button id="analyzeBtn" class="btn primary" disabled>🔍 Analyze Leaf</button>
+        <button id="resetBtn" class="btn" disabled>↺ Reset</button>
+      </div>
+
+      <p id="status" class="status">Waiting for upload...</p>
     </section>
 
-    <section class="canvas-section">
+    <section class="card canvas-card">
       <h2>🖼 Processed Leaf</h2>
-      <canvas id="canvas"></canvas>
+      <div class="canvas-wrap">
+        <canvas id="canvas" aria-label="Processed leaf preview"></canvas>
+      </div>
     </section>
 
-    <section class="results-section">
+    <section class="card results-card">
       <h2>📊 Results</h2>
       <div id="results">No analysis yet.</div>
     </section>
   </main>
 
-  <footer>
-    <p>Made with 💚 for Science Fair | Powered by API4AI</p>
+  <footer class="site-footer">
+    <small>Built for science fair • Uses demo api4ai background-removal endpoint</small>
   </footer>
+
+  <!-- Overlay spinner -->
+  <div id="overlay" class="overlay hidden" aria-hidden="true">
+    <div class="spinner" role="status" aria-live="polite" aria-label="Loading"></div>
+    <div id="overlayText" class="overlay-text">Processing…</div>
+  </div>
 
   <script src="script.js"></script>
 </body>
