@@ -57,6 +57,47 @@ if (!resultsContainer) {
 let processedDataURL = null;
 let lastFile = null;
 
+// Process uploaded file: try API, fallback to local removal
+async function processFile(file) {
+  lastFile = file;
+  showSpinner("Removing background…");
+
+  try {
+    const apiDataURL = await callBgRemovalApi(file);
+    await drawProcessedToCanvas(apiDataURL);
+    hideSpinner("Background removed (API). Ready to analyze.");
+  } catch (err) {
+    console.warn("API failed, using local bg-removal fallback:", err);
+
+    // fallback: draw original to offscreen canvas and remove by color
+    const off = document.createElement("canvas");
+    const offCtx = off.getContext("2d");
+
+    await new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1000;
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          const ratio = w / h;
+          if (ratio >= 1) { w = maxDim; h = Math.round(maxDim / ratio); }
+          else { h = maxDim; w = Math.round(maxDim * ratio); }
+        }
+        off.width = w; off.height = h;
+        offCtx.drawImage(img, 0, 0, w, h);
+        res();
+      };
+      img.onerror = rej;
+      img.src = URL.createObjectURL(file);
+    });
+
+    const fallbackDataURL = removeBackgroundByColorFromCanvas(off, 50);
+    await drawProcessedToCanvas(fallbackDataURL);
+
+    hideSpinner("Background removed (local fallback). Ready to analyze.");
+  }
+}
+
 // helpers
 function setProgress(p = 0) {
   if (!progressBar) return;
