@@ -57,16 +57,37 @@ canvas{ max-width:100%; max-height:520px; width:auto; height:auto; border-radius
 /* Footer */
 .site-footer{ text-align:center; padding:12px 8px; color:var(--muted); background:transparent; border-top:0; }
 
-/* Overlay spinner */
-.overlay{
-  position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-  background: rgba(5,10,7,0.36); z-index:9999;
+/* Overlay covers screen while processing */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  z-index: 9999;
 }
-.overlay.hidden{ display:none }
-.spinner{
-  width:64px; height:64px; border-radius:50%;
-  border:8px solid rgba(255,255,255,0.25); border-top-color:white;
-  animation:spin 1s linear infinite; box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+
+/* hidden state */
+.overlay.hidden {
+  display: none;
 }
-@keyframes spin{ to{ transform:rotate(360deg) } }
-.overlay-text{ margin-top:12px; color:white; font-weight:700 }
+
+/* Spinner circle */
+.spinner {
+  border: 6px solid #e0e0e0;
+  border-top: 6px solid #2e7d32;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  animation: spin 1s linear infinite;
+  margin-bottom: 15px;
+}
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+.overlay-text {
+  font-size: 18px;
+  color: #2e7d32;
+  font-weight: bold;
+}
