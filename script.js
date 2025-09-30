@@ -63,21 +63,27 @@ function setProgress(p = 0) {
   progressWrap.hidden = p <= 0;
   progressBar.style.width = `${Math.max(0, Math.min(100, p))}%`;
 }
+// --- Spinner helpers ---
 function showSpinner(msg = "Processing…") {
-  spinner.hidden = false;
-  spinnerText && (spinnerText.textContent = msg);
-  setProgress(8);
+  const overlay = document.getElementById("overlay");
+  const text = document.getElementById("overlayText");
+  if (overlay) {
+    overlay.classList.remove("hidden");
+    overlay.setAttribute("aria-hidden", "false");
+  }
+  if (text) text.textContent = msg;
   analyzeBtn.disabled = true;
-  // ensure results hidden while processing
-  resultsContainer.hidden = true;
 }
+
 function hideSpinner(msg = "") {
-  spinner.hidden = true;
-  setProgress(0);
-  status && (status.textContent = msg || "");
-  // only enable analyze if we have processed image
-  analyzeBtn.disabled = !processedDataURL;
-  resultsContainer.hidden = false;
+  const overlay = document.getElementById("overlay");
+  const text = document.getElementById("overlayText");
+  if (overlay) {
+    overlay.classList.add("hidden");
+    overlay.setAttribute("aria-hidden", "true");
+  }
+  if (msg) status.textContent = msg;
+  analyzeBtn.disabled = false;
 }
 
 // note: keep your rgbToHsv function
@@ -216,22 +222,50 @@ function renderAnalysis(out) {
 // ANALYZE wiring (assumes analyzeCurrentCanvas exists and returns expected output)
 analyzeBtn.addEventListener("click", () => {
   showSpinner("Analyzing colors…");
+
   setTimeout(() => {
-    try {
-      const out = analyzeCurrentCanvas();
-      if (!out) {
-        hideSpinner("No image available");
-        return;
-      }
-      renderAnalysis(out);
-      // friendly status line
-      hideSpinner("Analysis complete");
-      status && (status.textContent = out.verdict);
-    } catch (err) {
-      console.error(err);
-      hideSpinner("Analysis failed");
+    const out = analyzeCurrentCanvas();
+    if (!out) {
+      hideSpinner("No image available");
+      return;
     }
-  }, 120); // small delay so spinner is visible on fast devices
+
+    const p = out.percents;
+
+    // Generate tips based on verdict
+    let tip = "";
+    if (out.verdict.includes("Healthy")) {
+      tip = " 🌱 Keep watering consistently, ensure good sunlight.";
+    } else if (out.verdict.includes("Moderately")) {
+      tip = " ⚠️ Watch for stress signs: adjust light/water and inspect for pests.";
+    } else if (out.verdict.includes("Unhealthy")) {
+      tip = " ❌ Consider pruning damaged leaves and improving soil or nutrients.";
+    }
+
+    // Build results HTML
+    results.innerHTML = `
+      <div class="results-box">
+        <div class="verdict">
+          <h2>${out.verdict}</h2>
+          <p>${tip}</p>
+          <p><small>Analyzed ${out.total} leaf pixels</small></p>
+        </div>
+        <div class="color-breakdown">
+          <h3>Color Breakdown</h3>
+          <ul>
+            <li><span style="color:green;">●</span> Green: ${p.greenPct.toFixed(1)}%</li>
+            <li><span style="color:red;">●</span> Red: ${p.redPct.toFixed(1)}%</li>
+            <li><span style="color:purple;">●</span> Purple: ${p.purplePct.toFixed(1)}%</li>
+            <li><span style="color:goldenrod;">●</span> Yellow: ${p.yellowPct.toFixed(1)}%</li>
+            <li><span style="color:brown;">●</span> Brown/Dull: ${p.brownPct.toFixed(1)}%</li>
+            <li><span style="color:gray;">●</span> Other: ${p.otherPct.toFixed(1)}%</li>
+          </ul>
+        </div>
+      </div>
+    `;
+
+    hideSpinner("Analysis complete");
+  }, 150);
 });
 
 // upload wiring (use your processFile implementation)
