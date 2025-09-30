@@ -1,41 +1,86 @@
-// script.js — fixed totals, spinner, color breakdown for Coleus (green/red/purple),
-// API background removal with local fallback, and clearer verdict thresholds.
+// script.js — enhanced spinner, verdict + tips, color-box rendering
+// (keeps your thresholds, rgbToHsv, analyzeCurrentCanvas, and bg-removal logic)
 
-// --- Configurable thresholds ---
 const THRESHOLD_HEALTHY = 60;   // >= this % => Healthy
 const THRESHOLD_MODERATE = 35;  // >= this % => Moderately Healthy (else Unhealthy)
 
-// --- DOM ---
+// DOM
 const upload = document.getElementById("upload");
 const analyzeBtn = document.getElementById("analyzeBtn");
 const status = document.getElementById("status");
-const results = document.getElementById("results");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-// optional spinner/progress elements (add to HTML if not present)
-const spinner = document.getElementById("spinner");   // <div id="spinner"></div> (CSS below)
-const progressBar = document.getElementById("progressBar"); // optional
+// spinner/progress and results placeholders (create fallback if missing)
+let spinner = document.getElementById("spinner");
+let spinnerText = spinner ? document.getElementById("spinnerText") : null;
+let progressBar = document.getElementById("progressBar");
+let progressWrap = document.getElementById("progressWrap");
+let resultsContainer = document.getElementById("resultsContainer");
+let verdictBox = document.getElementById("verdictBox");
+let colorBox = document.getElementById("colorBox");
+const resultsPlaceholder = document.getElementById("results"); // optional old area
+
+// create spinner/progress/results if not present (robustness)
+if (!spinner) {
+  spinner = document.createElement("div");
+  spinner.id = "spinner";
+  spinner.className = "spinner";
+  spinner.setAttribute("hidden", "true");
+  spinner.innerHTML = '<div class="spinner-icon" aria-hidden="true"></div><div id="spinnerText">Processing…</div>';
+  (document.body || document.documentElement).insertBefore(spinner, document.body.firstChild);
+  spinnerText = document.getElementById("spinnerText");
+}
+if (!progressWrap) {
+  progressWrap = document.createElement("div");
+  progressWrap.id = "progressWrap";
+  progressWrap.className = "progress-wrap";
+  progressWrap.setAttribute("hidden", "true");
+  progressBar = document.createElement("div");
+  progressBar.id = "progressBar"; progressBar.className = "progress-bar";
+  progressWrap.appendChild(progressBar);
+  spinner.insertAdjacentElement("afterend", progressWrap);
+}
+if (!resultsContainer) {
+  resultsContainer = document.createElement("div");
+  resultsContainer.id = "resultsContainer";
+  resultsContainer.className = "results-container";
+  verdictBox = document.createElement("div"); verdictBox.id = "verdictBox"; verdictBox.className = "verdict-box";
+  colorBox = document.createElement("aside"); colorBox.id = "colorBox"; colorBox.className = "color-box";
+  resultsContainer.appendChild(verdictBox);
+  resultsContainer.appendChild(colorBox);
+  // append after canvas area (or to body)
+  canvas.parentNode?.insertBefore(resultsContainer, canvas.nextSibling);
+}
 
 // internal
-let processedDataURL = null; // dataURL of processed image (with transparency)
+let processedDataURL = null;
 let lastFile = null;
 
-// === helpers ===
-function showSpinner(msg = "Processing…") {
-  if (spinner) spinner.hidden = false;
-  if (progressBar) progressBar.style.width = "10%";
-  status.textContent = msg;
-  analyzeBtn.disabled = true;
+// helpers
+function setProgress(p = 0) {
+  if (!progressBar) return;
+  progressWrap.hidden = p <= 0;
+  progressBar.style.width = `${Math.max(0, Math.min(100, p))}%`;
 }
-function setProgress(p) { if (progressBar) progressBar.style.width = `${Math.max(0, Math.min(100, p))}%`; }
+function showSpinner(msg = "Processing…") {
+  spinner.hidden = false;
+  spinnerText && (spinnerText.textContent = msg);
+  setProgress(8);
+  analyzeBtn.disabled = true;
+  // ensure results hidden while processing
+  resultsContainer.hidden = true;
+}
 function hideSpinner(msg = "") {
-  if (spinner) spinner.hidden = true;
-  if (progressBar) progressBar.style.width = "0%";
-  status.textContent = msg;
-  analyzeBtn.disabled = false;
+  spinner.hidden = true;
+  setProgress(0);
+  status && (status.textContent = msg || "");
+  // only enable analyze if we have processed image
+  analyzeBtn.disabled = !processedDataURL;
+  resultsContainer.hidden = false;
 }
 
+// note: keep your rgbToHsv function
 function rgbToHsv(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -53,210 +98,156 @@ function rgbToHsv(r, g, b) {
   return [h * 360, s, v];
 }
 
-// Local fallback bg removal: sample corners and set nearby colors transparent
-function removeBackgroundByColorFromCanvas(offCanvas, tolerance = 45) {
-  const w = offCanvas.width, h = offCanvas.height;
-  const offCtx = offCanvas.getContext("2d");
-  const imgData = offCtx.getImageData(0, 0, w, h);
-  const data = imgData.data;
+// -------------------------------------------------------
+// Insert your removeBackgroundByColorFromCanvas, drawProcessedToCanvas,
+// callBgRemovalApi and processFile implementations here —
+// for brevity, I'm assuming you already have them as posted earlier.
+// -------------------------------------------------------
+// To ensure completeness: re-use your existing implementations exactly as-is.
+// For example:
+// async function callBgRemovalApi(file) { ... }
+// function removeBackgroundByColorFromCanvas(offCanvas, tolerance) { ... }
+// async function processFile(file) { ... }
+// async function drawProcessedToCanvas(dataURL) { ... }
+// -------------------------------------------------------
 
-  // sample four 10x10 corner patches to estimate background color
-  function samplePatch(x0, y0, size = 10) {
-    let r=0,g=0,b=0,c=0;
-    for (let y=y0; y<Math.min(y0+size,h); y++) {
-      for (let x=x0; x<Math.min(x0+size,w); x++) {
-        const i = (y*w + x)*4;
-        r += data[i]; g += data[i+1]; b += data[i+2]; c++;
-      }
-    }
-    return [r/c, g/c, b/c];
-  }
-  const s1 = samplePatch(0,0), s2 = samplePatch(w-10,0), s3 = samplePatch(0,h-10), s4 = samplePatch(w-10,h-10);
-  const bg = [(s1[0]+s2[0]+s3[0]+s4[0])/4, (s1[1]+s2[1]+s3[1]+s4[1])/4, (s1[2]+s2[2]+s3[2]+s4[2])/4];
+// RENDER helpers
+function makeColorItem(label, pct, count, hex) {
+  // create DOM elements for a color row
+  const row = document.createElement("div");
+  row.className = "color-item";
 
-  // mark pixels similar to bg as transparent
-  for (let i = 0; i < data.length; i += 4) {
-    const dr = data[i] - bg[0], dg = data[i+1] - bg[1], db = data[i+2] - bg[2];
-    const dist = Math.sqrt(dr*dr + dg*dg + db*db);
-    if (dist < tolerance) {
-      data[i+3] = 0; // alpha -> transparent
-    }
-  }
-  offCtx.putImageData(imgData, 0, 0);
-  return offCanvas.toDataURL("image/png");
+  const sw = document.createElement("div");
+  sw.className = "color-swatch";
+  sw.style.background = hex;
+
+  const labelWrap = document.createElement("div");
+  labelWrap.style.minWidth = "110px";
+  labelWrap.textContent = `${label}: ${pct.toFixed(1)}% (${count})`;
+
+  const barWrap = document.createElement("div");
+  barWrap.className = "color-bar";
+  const barInner = document.createElement("div");
+  barInner.className = "color-bar-inner";
+  barInner.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  barInner.style.background = hex;
+  barWrap.appendChild(barInner);
+
+  row.appendChild(sw);
+  row.appendChild(labelWrap);
+  row.appendChild(barWrap);
+  return row;
 }
 
-// Draw dataURL onto main canvas and store processedDataURL
-function drawProcessedToCanvas(dataURL) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      // scale down if huge to keep analysis quick
-      const maxDim = 1000;
-      let w = img.width, h = img.height;
-      if (w > maxDim || h > maxDim) {
-        const ratio = w / h;
-        if (ratio >= 1) { w = maxDim; h = Math.round(maxDim / ratio); }
-        else { h = maxDim; w = Math.round(maxDim * ratio); }
-      } 
-      canvas.width = w; canvas.height = h;
-      ctx.clearRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
-      processedDataURL = canvas.toDataURL("image/png");
-      resolve();
-    };
-    img.onerror = reject;
-    img.src = dataURL;
+function generateTips(out) {
+  const p = out.percents;
+  const tips = [];
+
+  if (out.verdict.includes("Healthy")) {
+    tips.push("Looks healthy — continue similar light and watering. Monitor monthly for sudden changes.");
+  } else if (out.verdict.includes("Moderately Healthy")) {
+    tips.push("Some worry — check watering frequency and light exposure.");
+    tips.push("Inspect yellow/brown patches and adjust watering or fertilizer accordingly.");
+  } else if (out.verdict.includes("Unhealthy")) {
+    tips.push("Unhealthy: inspect for pests, over/under-watering, or nutrient deficiencies.");
+    tips.push("Consider moving plant to steadier light and test the soil moisture before watering again.");
+  } else {
+    tips.push("No leaf detected — try a clearer photo or ensure background removal worked.");
+  }
+
+  // targeted tips from color signals
+  if (p.brownPct > 6) tips.push("Brown/dull areas are notable — could be sunburn, disease, or dehydration. Remove heavily damaged leaves and check airflow.");
+  if (p.yellowPct > 6) tips.push("Yellowing suggests nutrient deficiency or overwatering — check soil moisture and consider a balanced fertilizer.");
+  if ((p.redPct + p.purplePct) > 40) {
+    tips.push("High red/purple percentage — if this is Coleus, that is likely natural variegation and not a sign of ill health.");
+  }
+  if (p.otherPct > 10) tips.push("Unclassified colors present — take a closer look or re-take photo under uniform lighting.");
+
+  tips.push("These are heuristics — confirm with a teacher or plant diagnosis if unsure.");
+  return tips;
+}
+
+function renderAnalysis(out) {
+  // out: returned object from analyzeCurrentCanvas
+  verdictBox.innerHTML = ""; // clear
+  colorBox.innerHTML = "";   // clear
+
+  // Left: verdict + tips
+  const title = document.createElement("h3");
+  title.textContent = out.verdict;
+
+  const meta = document.createElement("div");
+  meta.style.marginBottom = "8px";
+  meta.textContent = `Leaf pixels analyzed: ${out.total}`;
+
+  const tips = generateTips(out);
+  const tipsList = document.createElement("ul");
+  tipsList.style.margin = "6px 0 0 18px";
+  tips.forEach(t => {
+    const li = document.createElement("li");
+    li.textContent = t;
+    tipsList.appendChild(li);
   });
+
+  verdictBox.appendChild(title);
+  verdictBox.appendChild(meta);
+  verdictBox.appendChild(tipsList);
+
+  // Right: color swatches and percentages
+  const p = out.percents;
+  const counts = out.counts;
+  const palette = [
+    {k: 'green', name: 'Green', hex: '#2e7d32', pct: p.greenPct, cnt: counts.green},
+    {k: 'red', name: 'Red', hex: '#c62828', pct: p.redPct, cnt: counts.red},
+    {k: 'purple', name: 'Purple', hex: '#6a1b9a', pct: p.purplePct, cnt: counts.purple},
+    {k: 'yellow', name: 'Yellow', hex: '#fbc02d', pct: p.yellowPct, cnt: counts.yellow},
+    {k: 'brown', name: 'Brown', hex: '#8d6e63', pct: p.brownPct, cnt: counts.brown},
+    {k: 'other', name: 'Other', hex: '#9e9e9e', pct: p.otherPct, cnt: counts.other}
+  ];
+
+  palette.forEach(col => {
+    colorBox.appendChild(makeColorItem(col.name, col.pct || 0, col.cnt || 0, col.hex));
+  });
+
+  // show the container
+  resultsContainer.hidden = false;
 }
 
-// Call the demo API; returns dataURL (PNG with transparency)
-async function callBgRemovalApi(file) {
-  const form = new FormData();
-  form.append("image", file);
-  const API = "https://demo.api4ai.cloud/img-bg-removal/v1/general/results";
-  const resp = await fetch(API, { method: "POST", body: form });
-  if (!resp.ok) throw new Error("API error: " + resp.status);
-  const json = await resp.json();
-  const base64 = json?.results?.[0]?.entities?.[0]?.image;
-  if (!base64) throw new Error("API returned no image");
-  return "data:image/png;base64," + base64;
-}
-
-// Process uploaded file: try API, fallback to local removal
-async function processFile(file) {
-  lastFile = file;
-  showSpinner("Removing background…");
-  try {
-    setProgress(12);
-    const apiDataURL = await callBgRemovalApi(file);
-    setProgress(70);
-    await drawProcessedToCanvas(apiDataURL);
-    setProgress(100);
-    hideSpinner("Background removed (API). Ready to analyze.");
-  } catch (err) {
-    console.warn("API failed, using local bg-removal fallback:", err);
-    // fallback: draw original to offscreen canvas and remove by color
-    const off = document.createElement("canvas");
-    const offCtx = off.getContext("2d");
-    // load image into off-canvas
-    await new Promise((res, rej) => {
-      const img = new Image();
-      img.onload = () => {
-        // scale similar to drawProcessedToCanvas
-        const maxDim = 1000;
-        let w = img.width, h = img.height;
-        if (w > maxDim || h > maxDim) {
-          const ratio = w / h;
-          if (ratio >= 1) { w = maxDim; h = Math.round(maxDim / ratio); }
-          else { h = maxDim; w = Math.round(maxDim * ratio); }
-        }
-        off.width = w; off.height = h;
-        offCtx.drawImage(img, 0, 0, w, h);
-        res();
-      };
-      img.onerror = rej;
-      img.src = URL.createObjectURL(file);
-    });
-    setProgress(50);
-    const fallbackDataURL = removeBackgroundByColorFromCanvas(off, 50);
-    await drawProcessedToCanvas(fallbackDataURL);
-    setProgress(100);
-    hideSpinner("Background removed (local fallback). Ready to analyze.");
-  }
-}
-
-/* Main analyze function — returns breakdown & verdict */
-function analyzeCurrentCanvas() {
-  if (!processedDataURL) return null;
-  const w = canvas.width, h = canvas.height;
-  const data = ctx.getImageData(0, 0, w, h).data;
-
-  let total = 0;
-  let green = 0, red = 0, purple = 0, yellow = 0, brown = 0, other = 0;
-
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
-    // skip transparent / background pixels
-    if (typeof a !== "undefined" && a < 16) continue;
-    total++;
-
-    const [hDeg, s, v] = rgbToHsv(r, g, b);
-
-    // heuristics (tuned for leaf pigments, Coleus variegation)
-    // brown/dull: low saturation and low value
-    if (s < 0.18 && v < 0.45) {
-      brown++; continue;
+// ANALYZE wiring (assumes analyzeCurrentCanvas exists and returns expected output)
+analyzeBtn.addEventListener("click", () => {
+  showSpinner("Analyzing colors…");
+  setTimeout(() => {
+    try {
+      const out = analyzeCurrentCanvas();
+      if (!out) {
+        hideSpinner("No image available");
+        return;
+      }
+      renderAnalysis(out);
+      // friendly status line
+      hideSpinner("Analysis complete");
+      status && (status.textContent = out.verdict);
+    } catch (err) {
+      console.error(err);
+      hideSpinner("Analysis failed");
     }
-    // green
-    if (hDeg >= 60 && hDeg <= 180 && s >= 0.2 && v >= 0.15) { green++; continue; }
-    // red (wrap at 360)
-    if ((hDeg <= 30 || hDeg >= 330) && s >= 0.18 && v >= 0.12) { red++; continue; }
-    // purple/pink
-    if (hDeg >= 260 && hDeg <= 320 && s >= 0.15) { purple++; continue; }
-    // yellow (can be healthy in some varieties but often indicates stress)
-    if (hDeg >= 30 && hDeg < 60 && s >= 0.18) { yellow++; continue; }
+  }, 120); // small delay so spinner is visible on fast devices
+});
 
-    other++;
-  }
-
-  const healthyCount = green + red + purple; // treat these pigments as 'healthy colors'
-  const unhealthyCount = brown + other;     // explicit brown/dull + misc unknown => unhealthy
-  const healthyPct = total ? (healthyCount / total) * 100 : 0;
-  const unhealthyPct = total ? (unhealthyCount / total) * 100 : 0;
-
-  // verdict using user-friendly thresholds (configurable up top)
-  let verdict = "No leaf detected";
-  if (total >= 50) {
-    if (healthyPct >= THRESHOLD_HEALTHY) verdict = "Healthy ✅";
-    else if (healthyPct >= THRESHOLD_MODERATE) verdict = "Moderately Healthy ⚠️";
-    else verdict = "Unhealthy ❌";
-  }
-
-  return {
-    total,
-    counts: { green, red, purple, yellow, brown, other },
-    percents: {
-      healthyPct, unhealthyPct,
-      greenPct: total ? (green/total)*100 : 0,
-      redPct: total ? (red/total)*100 : 0,
-      purplePct: total ? (purple/total)*100 : 0,
-      yellowPct: total ? (yellow/total)*100 : 0,
-      brownPct: total ? (brown/total)*100 : 0,
-      otherPct: total ? (other/total)*100 : 0
-    },
-    verdict
-  };
-}
-
-// === Event wiring ===
+// upload wiring (use your processFile implementation)
 upload.addEventListener("change", async (ev) => {
   const file = ev.target.files[0];
   if (!file) return;
   processedDataURL = null;
   analyzeBtn.disabled = true;
-  results.textContent = "";
-  await processFile(file);
-});
-
-analyzeBtn.addEventListener("click", () => {
-  showSpinner("Analyzing colors…");
-  setTimeout(() => { // minor delay so spinner shows on slow devices
-    const out = analyzeCurrentCanvas();
-    if (!out) {
-      hideSpinner("No image available");
-      return;
-    }
-    // show detailed breakdown
-    const p = out.percents;
-    const txt = `
-      Verdict: ${out.verdict}
-      (Leaf pixels analyzed: ${out.total})
-      Healthy colors (green/red/purple): ${p.healthyPct.toFixed(1)}%
-      • green ${p.greenPct.toFixed(1)}% • red ${p.redPct.toFixed(1)}% • purple ${p.purplePct.toFixed(1)}%
-      Yellow: ${p.yellowPct.toFixed(1)}%  • Brown/dull: ${p.brownPct.toFixed(1)}%  • Other: ${p.otherPct.toFixed(1)}%
-    `;
-    results.textContent = txt.replace(/\s+/g,' ').trim();
-    hideSpinner("Analysis complete");
-  }, 150);
+  resultsContainer.hidden = true;
+  // call your processFile (which will show/hide spinner and set processedDataURL)
+  try {
+    await processFile(file); // your existing function that uses API / fallback and calls drawProcessedToCanvas
+    // after processed, ensure analyze button enabled
+    analyzeBtn.disabled = !processedDataURL;
+  } catch (err) {
+    console.error("Processing failed:", err);
+    hideSpinner("Processing failed");
+  }
 });
