@@ -98,6 +98,222 @@ async function processFile(file) {
   }
 }
 
+/* ------------------------------------------------------------------
+   Background removal helpers
+   - removeBackgroundByColorFromCanvas(canvas, tolerance)
+     -> expects an HTMLCanvasElement pre-drawn with the source image;
+     -> returns a dataURL string (PNG) synchronously.
+
+   - removeBackgroundByCanvas(input, tolerance)
+     -> async. Accepts File | dataURL string | HTMLImageElement | HTMLCanvasElement
+     -> returns a Promise resolving to a dataURL string (PNG)
+   ------------------------------------------------------------------ */
+
+function removeBackgroundByColorFromCanvas(offCanvas, tolerance = 45) {
+  if (!(offCanvas instanceof HTMLCanvasElement)) {
+    throw new Error('removeBackgroundByColorFromCanvas: expected a canvas element');
+  }
+  const w = offCanvas.width, h = offCanvas.height;
+  const ctx = offCanvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context unavailable');
+
+  // Read pixels
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  // Helper: sample a small square patch and average its RGB
+  function samplePatch(x0, y0, size = 10) {
+    let r = 0, g = 0, b = 0, c = 0;
+    const xEnd = Math.min(w, x0 + size), yEnd = Math.min(h, y0 + size);
+    for (let y = Math.max(0, y0); y < yEnd; y++) {
+      for (let x = Math.max(0, x0); x < xEnd; x++) {
+        const i = (y * w + x) * 4;
+        r += data[i]; g += data[i + 1]; b += data[i + 2]; c++;
+      }
+    }
+    if (c === 0) return [0, 0, 0];
+    return [r / c, g / c, b / c];
+  }
+
+  // Sample 4 corners
+  const sA = samplePatch(0, 0);
+  const sB = samplePatch(w - 10, 0);
+  const sC = samplePatch(0, h - 10);
+  const sD = samplePatch(w - 10, h - 10);
+  const bgR = (sA[0] + sB[0] + sC[0] + sD[0]) / 4;
+  const bgG = (sA[1] + sB[1] + sC[1] + sD[1]) / 4;
+  const bgB = (sA[2] + sB[2] + sC[2] + sD[2]) / 4;
+
+  // Remove pixels similar to bg color
+  let removed = 0, kept = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const dr = data[i] - bgR;
+    const dg = data[i + 1] - bgG;
+    const db = data[i + 2] - bgB;
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+    if (dist < tolerance) {
+      data[i + 3] = 0; // transparent
+      removed++;
+    } else {
+      kept++;
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  const leafFraction = (kept / Math.max(1, w * h));
+
+  // If the corner approach removed almost nothing or removed nearly everything,
+  // treat as failure and fallback to color segmentation
+  if (leafFraction < 0.005 || leafFraction > 0.95) {
+    // perform color-based segmentation fallback
+    const fallbackImg = ctx.getImageData(0, 0, w, h);
+    const fdata = fallbackImg.data;
+    let fKept = 0;
+    for (let i = 0; i < fdata.length; i += 4) {
+      const r = fdata[i], g = fdata[i + 1], b = fdata[i + 2];
+      // convert to HSV (fast approx)
+      const hsv = (function _rgbToHsv(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        const d = mx - mn;
+        let h = 0, s = mx === 0 ? 0 : d / mx, v = mx;
+        if (d !== 0) {
+          switch (mx) {
+            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+            case g: h = (b - r) / d + 2; break;
+            case b: h = (r - g) / d + 4; break;
+          }
+          h = h / 6 * 360;
+        }
+        return [h, s, v];
+      })(r, g, b);
+
+      const [hDeg, s, v] = hsv;
+      // Leaf heuristic: green hues and reasonable saturation/value
+      const isLeafColor = ((hDeg >= 50 && hDeg <= 200) && s >= 0.12 && v >= 0.06) ||
+                          ((hDeg <= 40 || hDeg >= 320) && s >= 0.12 && v >= 0.06); // include red/purple variegation
+      if (!isLeafColor) {
+        fdata[i + 3] = 0;
+      } else {
+        fKept++;
+      }
+    }
+    ctx.putImageData(fallbackImg, 0, 0);
+    return offCanvas.toDataURL('image/png');
+  }
+
+  return offCanvas.toDataURL('image/png');
+}
+
+/**
+ * removeBackgroundByCanvas(input, tolerance) -> Promise<dataURL>
+ * input: File | dataURL string | HTMLImageElement | HTMLCanvasElement
+ */
+async function removeBackgroundByCanvas(input, tolerance = 45) {
+  // Helper to create canvas from an image element
+  function drawImageToCanvas(img) {
+    const c = document.createElement('canvas');
+    const maxDim = 1200; // keep sizes reasonable
+    let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    if (w > maxDim || h > maxDim) {
+      const ratio = w / h;
+      if (ratio >= 1) { w = maxDim; h = Math.round(maxDim / ratio); }
+      else { h = maxDim; w = Math.round(maxDim * ratio); }
+    }
+    c.width = w; c.height = h;
+    const cctx = c.getContext('2d');
+    // attempt to avoid taint for cross-origin images (best-effort)
+    try { cctx.drawImage(img, 0, 0, w, h); } catch (e) { cctx.drawImage(img, 0, 0, w, h); }
+    return c;
+  }
+
+  // If input is already a canvas, run directly
+  if (input instanceof HTMLCanvasElement) {
+    return removeBackgroundByColorFromCanvas(input, tolerance);
+  }
+
+  // If input is an Image element
+  if (input instanceof HTMLImageElement) {
+    const canvas = drawImageToCanvas(input);
+    return removeBackgroundByColorFromCanvas(canvas, tolerance);
+  }
+
+  // If input is a File (from <input type="file">)
+  if (input instanceof File) {
+    // load file as object URL
+    const url = URL.createObjectURL(input);
+    try {
+      const img = await new Promise((res, rej) => {
+        const im = new Image();
+        im.onload = () => { res(im); };
+        im.onerror = (e) => { rej(new Error('Failed to load file as image')); };
+        im.src = url;
+      });
+      const canvas = drawImageToCanvas(img);
+      URL.revokeObjectURL(url);
+      return removeBackgroundByColorFromCanvas(canvas, tolerance);
+    } catch (err) {
+      URL.revokeObjectURL(url);
+      throw err;
+    }
+  }
+
+  // If input is a dataURL string (data:image/...)
+  if (typeof input === 'string' && input.startsWith('data:')) {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = input;
+    });
+    const canvas = drawImageToCanvas(img);
+    return removeBackgroundByColorFromCanvas(canvas, tolerance);
+  }
+
+  // If input is a URL string (http...), try to load it with crossOrigin 'anonymous'
+  if (typeof input === 'string') {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = () => res(im);
+      im.onerror = (e) => rej(new Error('Failed to load URL image (CORS or network)'));
+      im.src = input;
+    });
+    const canvas = drawImageToCanvas(img);
+    return removeBackgroundByColorFromCanvas(canvas, tolerance);
+  }
+
+  throw new Error('Unsupported input type for removeBackgroundByCanvas');
+}
+
+/**
+ * Calls the API4AI background removal endpoint.
+ * @param {string} imageUrl - The public URL of the image to process.
+ * @returns {Promise<string>} - Resolves to a base64 dataURL (PNG with transparency).
+ */
+async function callingBgRemovalApi(imageUrl) {
+  const formData = new FormData();
+  formData.append("url", imageUrl);
+
+  const response = await fetch(
+    "https://demo.api4ai.cloud/img-bg-removal/v1/general/results",
+    {
+      method: "POST",
+      body: formData
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("API request failed: " + response.statusText);
+  }
+
+  const data = await response.json();
+
+  // Extract base64 image from API response
+  const base64 = data.results[0].entities[0].image;
+  return "data:image/png;base64," + base64;
+}
+
 // helpers
 function setProgress(p = 0) {
   if (!progressBar) return;
