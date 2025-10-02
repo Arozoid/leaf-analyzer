@@ -198,13 +198,13 @@ function analyzeCurrentCanvas() {
   const healthyCount = green+red+purple;
   const healthyPct = total ? (healthyCount/total)*100 : 0;
 
-  const unhealthyCount = yellow+other;
+  const unhealthyCount = yellow+brown+other;
   const unhealthyPct = total ? (unhealthyCount/total)*100 : 0;
 
   let verdict = "No leaf detected";
   let tips = "";
   if (total >= 50) {
-    if (healthyPct >= THRESHOLD_HEALTHY) {
+    if (healthyPct >= THRESHOLD_HEALTHY && unhealthyPct < THRESHOLD_MODERATE_ALT) {
       verdict = "Healthy ✅";
       tips = "Leaf pigments look strong and balanced.";
     } else if (healthyPct >= THRESHOLD_MODERATE || unhealthyPct >= THRESHOLD_MODERATE_ALT) {
