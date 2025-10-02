@@ -3,7 +3,7 @@
 // =======================
 const THRESHOLD_HEALTHY = 60;   // >= this % => Healthy
 const THRESHOLD_MODERATE = 35;  // >= this % => Moderately Healthy
-const THRESHOLD_MODERATE_ALT = 15; // unhealthyPct >= this % => Moderately Healthy
+const THRESHOLD_MODERATE_ALT = 20; // unhealthyPct >= this % => Moderately Healthy
 
 // ===========
 // DOM targets
