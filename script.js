@@ -4,6 +4,7 @@
 const THRESHOLD_HEALTHY = 60;   // >= this % => Healthy
 const THRESHOLD_MODERATE = 35;  // >= this % => Moderately Healthy
 const THRESHOLD_MODERATE_ALT = 20; // unhealthyPct >= this % => Moderately Healthy
+const THRESHOLD_UNHEALTHY = 40;
 
 // ===========
 // DOM targets
@@ -207,7 +208,7 @@ function analyzeCurrentCanvas() {
     if (healthyPct >= THRESHOLD_HEALTHY && unhealthyPct < THRESHOLD_MODERATE_ALT) {
       verdict = "Healthy ✅";
       tips = "Leaf pigments look strong and balanced.";
-    } else if (healthyPct >= THRESHOLD_MODERATE || unhealthyPct >= THRESHOLD_MODERATE_ALT) {
+    } else if (healthyPct >= THRESHOLD_MODERATE || unhealthyPct >= THRESHOLD_MODERATE_ALT && unhealthyPct < THRESHOLD_UNHEALTHY) {
       verdict = "Moderately Healthy ⚠️";
       tips = "Monitor watering and sunlight. Some stress signs.";
     } else {
