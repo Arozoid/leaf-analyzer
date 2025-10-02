@@ -3,6 +3,7 @@
 // =======================
 const THRESHOLD_HEALTHY = 60;   // >= this % => Healthy
 const THRESHOLD_MODERATE = 35;  // >= this % => Moderately Healthy
+const THRESHOLD_MODERATE_ALT = 15; // unhealthyPct >= this % => Moderately Healthy
 
 // ===========
 // DOM targets
@@ -197,13 +198,16 @@ function analyzeCurrentCanvas() {
   const healthyCount = green+red+purple;
   const healthyPct = total ? (healthyCount/total)*100 : 0;
 
+  const unhealthyCount = yellow+other;
+  const unhealthyPct = total ? (unhealthyCount/total)*100 : 0;
+
   let verdict = "No leaf detected";
   let tips = "";
   if (total >= 50) {
     if (healthyPct >= THRESHOLD_HEALTHY) {
       verdict = "Healthy ✅";
       tips = "Leaf pigments look strong and balanced.";
-    } else if (healthyPct >= THRESHOLD_MODERATE) {
+    } else if (healthyPct >= THRESHOLD_MODERATE || unhealthyPct >= THRESHOLD_MODERATE_ALT) {
       verdict = "Moderately Healthy ⚠️";
       tips = "Monitor watering and sunlight. Some stress signs.";
     } else {
