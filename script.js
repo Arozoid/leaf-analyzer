@@ -172,6 +172,27 @@ async function processFile(file) {
   }
 }
 
+// ==================================================
+// Helper: filter colors that can't belong to a leaf
+// ==================================================
+function isImpossibleLeafColor(r, g, b) {
+  const [hDeg, s, v] = rgbToHsv(r, g, b);
+
+  // Very light (white-ish / bright gray)
+  if (v > 0.9 && s < 0.1) return true;
+
+  // Very dark gray/black
+  if (v < 0.1 && s < 0.1) return true;
+
+  // Neutral gray midtones
+  if (s < 0.08 && v >= 0.1 && v <= 0.9) return true;
+
+  // Pure blues & cyans (not in leaves normally)
+  if (hDeg >= 180 && hDeg <= 260 && s > 0.1) return true;
+
+  return false;
+}
+
 // =====================
 // Analyze leaf colors
 // =====================
