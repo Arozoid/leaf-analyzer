@@ -205,7 +205,8 @@ function analyzeCurrentCanvas() {
 
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
-    if (a < 16) continue;
+    if (a < 16) continue; // transparent skip
+    if (isImpossibleLeafColor(r, g, b)) continue; // 🚀 new filter
     total++;
     const [hDeg, s, v] = rgbToHsv(r,g,b);
 
