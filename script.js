@@ -145,8 +145,20 @@ function drawProcessedToCanvas(dataURL) {
 // ==========================
 // Process file (API + local)
 // ==========================
+const bgRemovalToggle = document.getElementById("bgRemovalToggle");
+
 async function processFile(file) {
   lastFile = file;
+
+  if (bgRemovalToggle && !bgRemovalToggle.checked) {
+    // 🚫 Skip background removal
+    showSpinner("Loading image without background removal…");
+    const dataURL = URL.createObjectURL(file);
+    await drawProcessedToCanvas(dataURL);
+    hideSpinner("Image loaded");
+    return;
+  }
+
   showSpinner("Removing background…");
   try {
     const apiDataURL = await callBgRemovalAPI(file);
