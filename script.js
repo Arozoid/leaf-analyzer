@@ -67,36 +67,228 @@ function rgbToHsv(r, g, b) {
 // ===================================
 // Local fallback background removal
 // ===================================
-function removeBackgroundByColorFromCanvas(offCanvas, tolerance = 45) {
+function removeBackgroundByColorFromCanvas(offCanvas, opts = {}) {
+  // opts: { toleranceMult, minThresh, maxThresh, sampleStep, morphIter }
+  const cfg = Object.assign({
+    toleranceMult: 1.1,
+    minThresh: 8,
+    maxThresh: 60,
+    sampleStep: 6,    // sampling spacing along borders
+    morphIter: 2,     // number of erosion/dilation iterations
+    keepComponentMinPx: 25 // minimum pixels for the largest component to be considered valid
+  }, opts);
+
   const w = offCanvas.width, h = offCanvas.height;
-  const offCtx = offCanvas.getContext("2d");
-  const imgData = offCtx.getImageData(0, 0, w, h);
+  const ctx = offCanvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context unavailable');
+  const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
 
-  // average corner colors
-  function samplePatch(x0, y0, size = 10) {
-    let r=0,g=0,b=0,c=0;
-    for (let y=y0; y<Math.min(y0+size,h); y++) {
-      for (let x=x0; x<Math.min(x0+size,w); x++) {
-        const i = (y*w + x)*4;
-        r += data[i]; g += data[i+1]; b += data[i+2]; c++;
+  // ---- helper: sRGB -> Lab conversion (for perceptual distance) ----
+  function rgbToLab(r, g, b) {
+    // convert to 0..1 linear
+    function srgbToLin(c){ c /= 255; return (c <= 0.04045) ? c / 12.92 : Math.pow((c + 0.055)/1.055, 2.4); }
+    const R = srgbToLin(r), G = srgbToLin(g), B = srgbToLin(b);
+    // sRGB -> XYZ (D65)
+    const X = R*0.4124564 + G*0.3575761 + B*0.1804375;
+    const Y = R*0.2126729 + G*0.7151522 + B*0.0721750;
+    const Z = R*0.0193339 + G*0.1191920 + B*0.9503041;
+    // normalize by reference white
+    const Xn = 0.95047, Yn = 1.00000, Zn = 1.08883;
+    function f(t){ return t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16/116); }
+    const fx = f(X / Xn), fy = f(Y / Yn), fz = f(Z / Zn);
+    const L = 116 * fy - 16;
+    const a = 500 * (fx - fy);
+    const b2 = 200 * (fy - fz);
+    return [L, a, b2];
+  }
+
+  function deltaE(lab1, lab2) {
+    const dL = lab1[0] - lab2[0];
+    const da = lab1[1] - lab2[1];
+    const db = lab1[2] - lab2[2];
+    return Math.sqrt(dL*dL + da*da + db*db);
+  }
+
+  // ---- sample many border pixels (top/bottom/left/right) ----
+  const samples = [];
+  const step = Math.max(1, Math.floor(cfg.sampleStep));
+  for (let x = 0; x < w; x += step) {
+    let iTop = (0 * w + x) * 4;
+    let iBot = ((h - 1) * w + x) * 4;
+    samples.push(rgbToLab(data[iTop], data[iTop+1], data[iTop+2]));
+    samples.push(rgbToLab(data[iBot], data[iBot+1], data[iBot+2]));
+  }
+  for (let y = 0; y < h; y += step) {
+    let iL = (y * w + 0) * 4;
+    let iR = (y * w + (w-1)) * 4;
+    samples.push(rgbToLab(data[iL], data[iL+1], data[iL+2]));
+    samples.push(rgbToLab(data[iR], data[iR+1], data[iR+2]));
+  }
+
+  // compute mean Lab of border samples
+  let sumL=0, suma=0, sumb=0;
+  for (const s of samples) { sumL += s[0]; suma += s[1]; sumb += s[2]; }
+  const meanLab = [sumL/samples.length, suma/samples.length, sumb/samples.length];
+
+  // compute distance stats on border samples to adapt threshold
+  const dists = samples.map(s => deltaE(s, meanLab));
+  const meanDist = dists.reduce((a,b)=>a+b,0) / dists.length;
+  const sq = dists.map(d => (d - meanDist)*(d - meanDist));
+  const std = Math.sqrt(sq.reduce((a,b)=>a+b,0) / dists.length);
+
+  // adaptive threshold (in Lab space) - perceptually meaningful
+  const thresh = Math.max(cfg.minThresh, Math.min(cfg.maxThresh, meanDist + cfg.toleranceMult * std));
+
+  // ---- helper: impossible color filter (reuse your existing heuristic but with HSV) ----
+  function isImpossibleLeafColor(r,g,b) {
+    const [hDeg, s, v] = rgbToHsv(r,g,b);
+    if (v > 0.95 && s < 0.12) return true; // near white
+    if (v < 0.06 && s < 0.12) return true;  // near black
+    if (s < 0.06 && v >= 0.06 && v <= 0.94) return true; // neutral grays
+    // blues/cyans
+    if (hDeg >= 180 && hDeg <= 260 && s > 0.12) return true;
+    return false;
+  }
+
+  // ---- create initial mask: 1 = candidate leaf, 0 = background ----
+  const mask = new Uint8Array(w * h);
+  const labCache = new Float32Array(w * h * 3); // cache lab values for speed
+  for (let y = 0, p = 0; y < h; y++) {
+    for (let x = 0; x < w; x++, p++) {
+      const i = (y * w + x) * 4;
+      const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+      if (a < 8) { mask[p] = 0; labCache[p*3] = labCache[p*3+1] = labCache[p*3+2] = 0; continue; }
+      if (isImpossibleLeafColor(r,g,b)) { mask[p] = 0; labCache[p*3] = labCache[p*3+1] = labCache[p*3+2] = 0; continue; }
+      const lab = rgbToLab(r,g,b);
+      labCache[p*3] = lab[0]; labCache[p*3+1] = lab[1]; labCache[p*3+2] = lab[2];
+      const d = deltaE(lab, meanLab);
+      // mark as leaf candidate when distance > threshold
+      mask[p] = d > thresh ? 1 : 0;
+    }
+  }
+
+  // ---- morphological clean-up: erode then dilate (opening) ----
+  function erode(m, w, h) {
+    const out = new Uint8Array(m.length);
+    for (let y=0, idx=0; y<h; y++) {
+      for (let x=0; x<w; x++, idx++) {
+        if (m[idx] === 0) { out[idx] = 0; continue; }
+        // check 8 neighbors, if any neighbor 0 -> set 0
+        let all = 1;
+        for (let yy=-1; yy<=1; yy++) {
+          const ny = y + yy;
+          if (ny < 0 || ny >= h) { all = 0; break; }
+          for (let xx=-1; xx<=1; xx++) {
+            const nx = x + xx;
+            if (nx < 0 || nx >= w) { all = 0; break; }
+            const nidx = ny*w + nx;
+            if (m[nidx] === 0) { all = 0; break; }
+          }
+          if (!all) break;
+        }
+        out[idx] = all ? 1 : 0;
       }
     }
-    return [r/c, g/c, b/c];
+    return out;
   }
-  const s1 = samplePatch(0,0), s2 = samplePatch(w-10,0), s3 = samplePatch(0,h-10), s4 = samplePatch(w-10,h-10);
-  const bg = [(s1[0]+s2[0]+s3[0]+s4[0])/4, (s1[1]+s2[1]+s3[1]+s4[1])/4, (s1[2]+s2[2]+s3[2]+s4[2])/4];
+  function dilate(m, w, h) {
+    const out = new Uint8Array(m.length);
+    for (let y=0, idx=0; y<h; y++) {
+      for (let x=0; x<w; x++, idx++) {
+        if (m[idx] === 1) { out[idx] = 1; continue; }
+        let any = 0;
+        for (let yy=-1; yy<=1; yy++) {
+          const ny = y + yy; if (ny < 0 || ny >= h) continue;
+          for (let xx=-1; xx<=1; xx++) {
+            const nx = x + xx; if (nx < 0 || nx >= w) continue;
+            const nidx = ny*w + nx;
+            if (m[nidx] === 1) { any = 1; break; }
+          }
+          if (any) break;
+        }
+        out[idx] = any ? 1 : 0;
+      }
+    }
+    return out;
+  }
 
-  // remove background-ish pixels
-  for (let i = 0; i < data.length; i += 4) {
-    const dr = data[i] - bg[0], dg = data[i+1] - bg[1], db = data[i+2] - bg[2];
-    const dist = Math.sqrt(dr*dr + dg*dg + db*db);
-    if (dist < tolerance) {
-      data[i+3] = 0;
+  let cleaned = mask;
+  for (let it=0; it<cfg.morphIter; it++) cleaned = erode(cleaned, w, h);
+  for (let it=0; it<cfg.morphIter; it++) cleaned = dilate(cleaned, w, h);
+
+  // ---- keep largest connected component only ----
+  const labels = new Int32Array(w*h);
+  let curLabel = 1;
+  let largestLabel = 0, largestSize = 0;
+  const stack = [];
+  for (let p=0; p < w*h; p++) {
+    if (cleaned[p] === 1 && labels[p] === 0) {
+      // flood fill / BFS
+      let size = 0;
+      stack.push(p);
+      labels[p] = curLabel;
+      while (stack.length) {
+        const q = stack.pop();
+        size++;
+        const y = Math.floor(q / w), x = q - y*w;
+        // 4-neighbors (faster)
+        const neighbors = [ [x+1,y], [x-1,y], [x,y+1], [x,y-1] ];
+        for (const [nx,ny] of neighbors) {
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          const ni = ny * w + nx;
+          if (cleaned[ni] === 1 && labels[ni] === 0) {
+            labels[ni] = curLabel;
+            stack.push(ni);
+          }
+        }
+      }
+      if (size > largestSize) { largestSize = size; largestLabel = curLabel; }
+      curLabel++;
     }
   }
-  offCtx.putImageData(imgData, 0, 0);
-  return offCanvas.toDataURL("image/png");
+
+  // if largest component is tiny, avoid throwing everything away; keep original cleaned mask in that case
+  let finalMask = new Uint8Array(w*h);
+  if (largestSize >= cfg.keepComponentMinPx) {
+    for (let p=0; p<w*h; p++) finalMask[p] = (labels[p] === largestLabel) ? 1 : 0;
+  } else {
+    // fallback: use cleaned mask but try to remove isolated pixels with one more opening
+    finalMask = cleaned;
+  }
+
+  // ---- feather edges: average 3x3 neighborhood to produce soft alpha ----
+  const alphaArr = new Uint8ClampedArray(w*h);
+  for (let y=0, idx=0; y<h; y++) {
+    for (let x=0; x<w; x++, idx++) {
+      let sum = 0, count = 0;
+      for (let yy = -1; yy <= 1; yy++) {
+        const ny = y + yy; if (ny < 0 || ny >= h) continue;
+        for (let xx = -1; xx <= 1; xx++) {
+          const nx = x + xx; if (nx < 0 || nx >= w) continue;
+          sum += finalMask[ny*w + nx];
+          count++;
+        }
+      }
+      const frac = count ? (sum / count) : 0;
+      alphaArr[idx] = Math.round(frac * 255);
+    }
+  }
+
+  // apply alpha back to imageData
+  for (let p = 0, i = 0; p < w*h; p++, i += 4) {
+    const a = alphaArr[p];
+    // preserve some original alpha if semi-transparent
+    if (a < 16) {
+      data[i+3] = 0;
+    } else {
+      data[i+3] = a;
+    }
+  }
+
+  // write back and return dataURL PNG
+  ctx.putImageData(imgData, 0, 0);
+  return offCanvas.toDataURL('image/png');
 }
 
 // =========================
